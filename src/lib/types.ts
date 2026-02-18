@@ -137,6 +137,7 @@ export interface SavedLearningPath {
 export interface ConversationState {
   stage: ConversationStage;
   exchangeCount: number;
+  selectedTopic: string;
   learningGoal: string;
   specificArea: string;
   timeline: string;

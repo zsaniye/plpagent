@@ -88,7 +88,6 @@ export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
 
         setMessages(newMessages);
         setState(result.updatedState);
-        setIsTyping(false);
 
         // Persist
         saveChatHistory(newMessages);
@@ -112,7 +111,31 @@ export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
           onPathSaved?.();
         }
 
-        inputRef.current?.focus();
+        // Auto-trigger path generation after assessment completes
+        if (
+          result.updatedState.stage === "path-generation" &&
+          !result.updatedState.learningPath &&
+          result.updatedState.skillProfile
+        ) {
+          // Keep typing indicator and auto-generate the path after a brief delay
+          setTimeout(() => {
+            const pathResult = processMessage(
+              "generate my learning path",
+              result.updatedState,
+              newMessages
+            );
+            const pathMessages = [...newMessages, pathResult.message];
+            setMessages(pathMessages);
+            setState(pathResult.updatedState);
+            setIsTyping(false);
+            saveChatHistory(pathMessages);
+            saveConversationState(pathResult.updatedState);
+            inputRef.current?.focus();
+          }, 1500);
+        } else {
+          setIsTyping(false);
+          inputRef.current?.focus();
+        }
       }, 800 + Math.random() * 600);
     },
     [messages, state, onPathSaved]
