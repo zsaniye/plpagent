@@ -5,14 +5,14 @@ import {
   Search,
   Filter,
   ExternalLink,
-  Star,
   Clock,
-  Users,
   Video,
   FileText,
   Headphones,
   Monitor,
   BookOpen,
+  LayoutGrid,
+  List,
 } from "lucide-react";
 import { courses } from "@/data/courses";
 import { Course, CourseCategory, CourseFormat, CourseLevel } from "@/lib/types";
@@ -101,15 +101,7 @@ function CourseCard({ course }: { course: Course }) {
       </div>
 
       <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-        <div className="flex items-center gap-1">
-          <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
-          <span className="text-xs font-medium text-gray-700">
-            {course.rating.toFixed(1)}
-          </span>
-          <span className="text-xs text-gray-400">
-            ({course.reviewCount.toLocaleString()} reviews)
-          </span>
-        </div>
+        <span className="text-xs text-gray-500">Free</span>
         <div className="flex gap-1">
           {course.topics.slice(0, 2).map((topic) => (
             <span
@@ -125,11 +117,63 @@ function CourseCard({ course }: { course: Course }) {
   );
 }
 
+function CourseListItem({ course }: { course: Course }) {
+  return (
+    <div className="card hover:shadow-md transition-shadow group flex items-center gap-4 py-3">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <h3 className="font-semibold text-gray-900 text-sm leading-snug group-hover:text-primary-600 transition-colors truncate">
+            {course.title}
+          </h3>
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${
+              levelColors[course.level]
+            }`}
+          >
+            {course.level.charAt(0).toUpperCase() + course.level.slice(1)}
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 line-clamp-1 mb-1">
+          {course.description}
+        </p>
+        <div className="flex items-center gap-3 text-xs text-gray-500">
+          <span className="font-medium text-gray-700">{course.provider}</span>
+          <span className="flex items-center gap-1">
+            <FormatIcon format={course.format} />
+            {course.format}
+          </span>
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {course.duration}
+          </span>
+          {course.topics.slice(0, 2).map((topic) => (
+            <span
+              key={topic}
+              className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded hidden sm:inline"
+            >
+              {topic}
+            </span>
+          ))}
+        </div>
+      </div>
+      <a
+        href={course.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex-shrink-0 p-2 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
+      >
+        <ExternalLink className="h-4 w-4" />
+      </a>
+    </div>
+  );
+}
+
 export default function ContentBrowser() {
   const [search, setSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedLevel, setSelectedLevel] = useState<string>("all");
   const [selectedFormat, setSelectedFormat] = useState<string>("all");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   const filteredCourses = useMemo(() => {
     let filtered = [...courses];
@@ -223,20 +267,52 @@ export default function ContentBrowser() {
         </div>
       </div>
 
-      {/* Results Count */}
+      {/* Results Count & View Toggle */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-gray-600">
           <span className="font-semibold">{filteredCourses.length}</span> courses
           found
         </p>
+        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+          <button
+            onClick={() => setViewMode("grid")}
+            className={`p-1.5 rounded-md transition-colors ${
+              viewMode === "grid"
+                ? "bg-white text-primary-600 shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+            title="Grid view"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setViewMode("list")}
+            className={`p-1.5 rounded-md transition-colors ${
+              viewMode === "list"
+                ? "bg-white text-primary-600 shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
+            }`}
+            title="List view"
+          >
+            <List className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Course Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredCourses.map((course) => (
-          <CourseCard key={course.id} course={course} />
-        ))}
-      </div>
+      {/* Course Grid or List */}
+      {viewMode === "grid" ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredCourses.map((course) => (
+            <CourseCard key={course.id} course={course} />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filteredCourses.map((course) => (
+            <CourseListItem key={course.id} course={course} />
+          ))}
+        </div>
+      )}
 
       {filteredCourses.length === 0 && (
         <div className="text-center py-12 text-gray-500">

@@ -162,6 +162,12 @@ function PathCard({
   };
 
   const handleStatusChange = (status: "completed" | "discontinued") => {
+    if (status === "completed") {
+      // Mark all courses as completed when path is marked complete
+      lp.courses.forEach((course) => {
+        updateCourseProgress(savedPath.id, course.courseId, true);
+      });
+    }
     updatePathStatus(savedPath.id, status);
     setShowFeedback(true);
   };
@@ -453,9 +459,9 @@ export default function MyLearning({ refreshKey }: MyLearningProps) {
     loadPaths();
   }, [loadPaths, refreshKey]);
 
-  const filteredPaths = paths.filter(
-    (p) => filter === "all" || p.status === filter
-  );
+  const filteredPaths = paths
+    .filter((p) => filter === "all" || p.status === filter)
+    .sort((a, b) => b.createdAt - a.createdAt);
 
   const activePaths = paths.filter((p) => p.status === "active").length;
   const completedPaths = paths.filter((p) => p.status === "completed").length;
