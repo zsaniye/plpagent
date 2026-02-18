@@ -14,9 +14,23 @@ function makeId(): string {
   return Math.random().toString(36).substring(2, 10);
 }
 
+const TOPIC_MAP: Record<string, string> = {
+  "digital-marketing": "Digital Marketing",
+  "gen-ai-marketing": "AI & Generative AI for Marketing",
+  "seo-sem": "SEO & Search Engine Marketing",
+  "social-media-marketing": "Social Media Marketing",
+  "content-marketing": "Content Marketing",
+  "email-marketing": "Email Marketing",
+  "marketing-analytics": "Marketing Analytics",
+  "brand-management": "Brand Management",
+  "marketing-strategy": "Marketing Strategy",
+  "video-marketing": "Video Marketing",
+};
+
 const initialState: ConversationState = {
   stage: "discovery",
   exchangeCount: 0,
+  selectedTopic: "",
   learningGoal: "",
   specificArea: "",
   timeline: "",
@@ -38,20 +52,43 @@ export function getWelcomeMessage(): ChatMessage {
     id: makeId(),
     role: "assistant",
     content:
-      "Welcome! I'm your Personalized Learning Path Agent for marketing professionals. I'm here to help you discover the right learning path tailored to your goals and experience.\n\nTo get started, could you tell me a bit about what's driving your desire to learn right now? Are you looking to advance in your current role, transition into a new area of marketing, or pick up a specific skill?",
+      "Welcome! I'm your Personalized Learning Path Agent for marketing professionals.\n\nTo get started, please select the topic you'd like to learn, or type your own:",
     timestamp: Date.now(),
     stage: "discovery",
     metadata: {
       suggestedActions: [
-        { label: "Advance in my role", value: "I want to advance in my current marketing role" },
-        { label: "Learn a new skill", value: "I want to learn a specific new marketing skill" },
-        { label: "Career transition", value: "I'm looking to transition into marketing" },
+        { label: "Digital Marketing", value: "digital-marketing" },
+        { label: "AI for Marketing", value: "gen-ai-marketing" },
+        { label: "SEO & SEM", value: "seo-sem" },
+        { label: "Social Media", value: "social-media-marketing" },
+        { label: "Content Marketing", value: "content-marketing" },
       ],
     },
   };
 }
 
 // ---- Discovery Stage ----
+
+function detectTopicFromInput(msg: string): string {
+  const lower = msg.toLowerCase().trim();
+
+  // Direct slug match (from button clicks)
+  if (TOPIC_MAP[lower]) return lower;
+
+  // Keyword matching for free-text input
+  if (lower.includes("ai") || lower.includes("generative") || lower.includes("chatgpt") || lower.includes("automation")) return "gen-ai-marketing";
+  if (lower.includes("seo") || lower.includes("search engine") || lower.includes("sem") || lower.includes("google ads")) return "seo-sem";
+  if (lower.includes("social media") || lower.includes("instagram") || lower.includes("tiktok") || lower.includes("facebook")) return "social-media-marketing";
+  if (lower.includes("content") || lower.includes("blog") || lower.includes("copywriting") || lower.includes("writing")) return "content-marketing";
+  if (lower.includes("email") || lower.includes("newsletter") || lower.includes("mailchimp")) return "email-marketing";
+  if (lower.includes("analytics") || lower.includes("data") || lower.includes("measurement") || lower.includes("google analytics")) return "marketing-analytics";
+  if (lower.includes("brand") || lower.includes("branding") || lower.includes("positioning")) return "brand-management";
+  if (lower.includes("video") || lower.includes("youtube")) return "video-marketing";
+  if (lower.includes("strategy") || lower.includes("planning") || lower.includes("leadership")) return "marketing-strategy";
+  if (lower.includes("digital") || lower.includes("marketing") || lower.includes("advertising")) return "digital-marketing";
+
+  return "digital-marketing";
+}
 
 const discoveryQuestions: {
   trigger: (state: ConversationState) => boolean;
@@ -60,22 +97,16 @@ const discoveryQuestions: {
   actions?: (state: ConversationState) => SuggestedAction[];
 }[] = [
   {
+    // Step 1: User selected a topic -> ask about experience level
     trigger: (s) => s.exchangeCount === 0,
-    question: (_s, _u) =>
-      "That's a great starting point! Can you tell me more specifically which area of marketing interests you most? For example, are you drawn to digital advertising, content creation, social media strategy, SEO, analytics, email marketing, or perhaps AI applications in marketing?",
-    extract: (s, msg) => ({ motivation: msg }),
-    actions: () => [
-      { label: "Digital Marketing", value: "I'm most interested in digital marketing and online advertising" },
-      { label: "Content Marketing", value: "I want to focus on content marketing and content strategy" },
-      { label: "SEO & SEM", value: "I want to master SEO and search engine marketing" },
-      { label: "AI for Marketing", value: "I'm interested in using AI and generative AI for marketing" },
-    ],
-  },
-  {
-    trigger: (s) => s.exchangeCount === 1,
-    question: (_s, _u) =>
-      "Interesting choice! To help me tailor the right path for you, what's your current experience level with this area? And is there a particular aspect or sub-topic you'd like to focus on?",
-    extract: (s, msg) => ({ specificArea: msg }),
+    extract: (_s, msg) => {
+      const topic = detectTopicFromInput(msg);
+      return { selectedTopic: topic, motivation: msg };
+    },
+    question: (s) => {
+      const topicLabel = TOPIC_MAP[s.selectedTopic] || s.selectedTopic;
+      return `Great choice! You've selected **${topicLabel}**.\n\nTo help me tailor the right path for you, what's your current experience level with ${topicLabel}? And is there a particular aspect or sub-topic you'd like to focus on?`;
+    },
     actions: () => [
       { label: "Complete beginner", value: "I'm a complete beginner in this area" },
       { label: "Some experience", value: "I have some basic experience but want to go deeper" },
@@ -83,10 +114,11 @@ const discoveryQuestions: {
     ],
   },
   {
-    trigger: (s) => s.exchangeCount === 2,
-    question: (_s, _u) =>
-      "That helps a lot! One more thing - what kind of timeline are you working with, and how much time can you dedicate to learning each week? This will help me create a realistic learning path for you.",
-    extract: (s, msg) => ({ learningGoal: `${s.motivation} - ${s.specificArea}` }),
+    // Step 2: Experience level -> ask about timeline
+    trigger: (s) => s.exchangeCount === 1,
+    extract: (_s, msg) => ({ specificArea: msg }),
+    question: () =>
+      "That helps a lot! What kind of timeline are you working with, and how much time can you dedicate to learning each week? This will help me create a realistic learning path for you.",
     actions: () => [
       { label: "1-2 hours/week", value: "I can spend about 1-2 hours per week, no specific deadline" },
       { label: "3-5 hours/week", value: "I can dedicate 3-5 hours per week to learning" },
@@ -94,15 +126,29 @@ const discoveryQuestions: {
     ],
   },
   {
+    // Step 3: Timeline -> ask about learning goal
+    trigger: (s) => s.exchangeCount === 2,
+    extract: (_s, msg) => ({ timeline: msg }),
+    question: () =>
+      "What's your main goal for learning this? Are you looking to advance in your current role, transition into a new area, or pick up a specific skill for a project?",
+    actions: () => [
+      { label: "Advance in my role", value: "I want to advance in my current marketing role" },
+      { label: "Career transition", value: "I'm looking to transition into this area of marketing" },
+      { label: "Specific project", value: "I need these skills for a specific project or task" },
+    ],
+  },
+  {
+    // Step 4: Goal -> ask about assessment method, transition to assessment
     trigger: (s) => s.exchangeCount === 3,
-    question: (_s, _u) => {
-      return "Thanks for sharing all of that! I now have a good understanding of your learning goals. Before I create your personalized learning path, I'd like to assess your current skill level so I can pitch the content at the right level.\n\nHow would you prefer to be assessed?\n\n1. **Quick Quiz** - Answer a few multiple-choice questions\n2. **Self-Rate** - Rate your proficiency in key skill areas\n3. **Upload Document** - Upload your resume or portfolio for analysis\n4. **Describe Skills** - Tell me about your current skills in your own words";
-    },
-    extract: (s, msg) => ({
-      timeline: msg,
+    extract: (_s, msg) => ({
+      learningGoal: msg,
       discoveryComplete: true,
       stage: "assessment" as const,
     }),
+    question: (s) => {
+      const topicLabel = TOPIC_MAP[s.selectedTopic] || s.selectedTopic;
+      return `Thanks for sharing all of that! I now have a good understanding of your learning goals for **${topicLabel}**.\n\nBefore I create your personalized learning path, I'd like to assess your current skill level so I can recommend the right content.\n\nHow would you prefer to be assessed?\n\n1. **Quick Quiz** - Answer 5 multiple-choice questions about ${topicLabel}\n2. **Self-Rate** - Rate your proficiency in key skill areas\n3. **Describe Skills** - Tell me about your current skills in your own words`;
+    },
     actions: () => [
       { label: "Quick Quiz", value: "I'd like to take a quick quiz" },
       { label: "Self-Rate", value: "I'll self-rate my skills" },
@@ -115,25 +161,11 @@ const discoveryQuestions: {
 
 function detectAssessmentChoice(msg: string): "quiz" | "self-rate" | "describe" | "upload" | null {
   const lower = msg.toLowerCase();
-  if (lower.includes("quiz") || lower.includes("1") || lower.includes("multiple")) return "quiz";
-  if (lower.includes("self") || lower.includes("rate") || lower.includes("2")) return "self-rate";
-  if (lower.includes("upload") || lower.includes("resume") || lower.includes("portfolio") || lower.includes("3")) return "upload";
-  if (lower.includes("describe") || lower.includes("tell") || lower.includes("4") || lower.includes("own words")) return "describe";
+  if (lower.includes("quiz") || lower.includes("multiple")) return "quiz";
+  if (lower.includes("self") || lower.includes("rate")) return "self-rate";
+  if (lower.includes("upload") || lower.includes("resume") || lower.includes("portfolio")) return "upload";
+  if (lower.includes("describe") || lower.includes("tell") || lower.includes("own words")) return "describe";
   return null;
-}
-
-function detectCategory(state: ConversationState): string {
-  const text = `${state.motivation} ${state.specificArea} ${state.learningGoal}`.toLowerCase();
-  if (text.includes("ai") || text.includes("generative") || text.includes("chatgpt") || text.includes("automation")) return "gen-ai-marketing";
-  if (text.includes("seo") || text.includes("search engine") || text.includes("sem") || text.includes("google ads")) return "seo-sem";
-  if (text.includes("social media") || text.includes("instagram") || text.includes("tiktok") || text.includes("facebook")) return "social-media-marketing";
-  if (text.includes("content") || text.includes("blog") || text.includes("copywriting") || text.includes("writing")) return "content-marketing";
-  if (text.includes("email") || text.includes("newsletter") || text.includes("mailchimp")) return "email-marketing";
-  if (text.includes("analytics") || text.includes("data") || text.includes("measurement") || text.includes("google analytics")) return "marketing-analytics";
-  if (text.includes("brand") || text.includes("branding") || text.includes("positioning")) return "brand-management";
-  if (text.includes("video") || text.includes("youtube") || text.includes("tiktok")) return "video-marketing";
-  if (text.includes("strategy") || text.includes("planning") || text.includes("leadership")) return "marketing-strategy";
-  return "digital-marketing";
 }
 
 function getQuizQuestions(category: string): QuizQuestion[] {
@@ -236,7 +268,7 @@ function buildSkillProfileFromQuiz(
   const overallLevel =
     correct >= 4 ? "advanced" : correct >= 2 ? "intermediate" : "beginner";
 
-  const categoryLabel = category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const categoryLabel = TOPIC_MAP[category] || category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   return {
     area: categoryLabel,
@@ -246,7 +278,7 @@ function buildSkillProfileFromQuiz(
 }
 
 function buildSkillProfileFromSelfRate(category: string, msg: string): SkillProfile {
-  const categoryLabel = category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const categoryLabel = TOPIC_MAP[category] || category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   const lower = msg.toLowerCase();
 
   let overallLevel: "beginner" | "intermediate" | "advanced" = "intermediate";
@@ -266,10 +298,6 @@ function buildSkillProfileFromSelfRate(category: string, msg: string): SkillProf
       { name: "Strategy", level: overallLevel === "beginner" ? 1 : overallLevel === "intermediate" ? 2 : 5, description: `${overallLevel} level strategic thinking` },
     ],
   };
-}
-
-function buildSkillProfileFromDescription(category: string, msg: string): SkillProfile {
-  return buildSkillProfileFromSelfRate(category, msg);
 }
 
 // ---- Learning Path Generation ----
@@ -306,9 +334,9 @@ function generateLearningPath(
   state: ConversationState,
   profile: SkillProfile
 ): LearningPath {
-  const category = detectCategory(state);
+  const category = state.selectedTopic || "digital-marketing";
   const selectedCourses = selectCoursesForPath(category, profile.overallLevel);
-  const categoryLabel = category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const categoryLabel = TOPIC_MAP[category] || category.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   const levelLabel =
     profile.overallLevel === "beginner"
@@ -437,7 +465,8 @@ export function processMessage(
 
   // --- Assessment Stage ---
   if (newState.stage === "assessment") {
-    const category = detectCategory(newState);
+    const category = newState.selectedTopic || "digital-marketing";
+    const categoryLabel = TOPIC_MAP[category] || category;
 
     // First message in assessment - detect method choice
     if (!newState.assessmentMethod) {
@@ -449,7 +478,7 @@ export function processMessage(
           message: {
             id: makeId(),
             role: "assistant",
-            content: `Great choice! Let's assess your current knowledge with a quick 5-question quiz. Take your time and answer honestly - there's no penalty for wrong answers. This is just to understand where you're starting from.\n\nFor each question, reply with the number of your answer (1, 2, 3, or 4).\n\n**Question 1 of 5:**\n${questions[0].question}\n\n1. ${questions[0].options[0]}\n2. ${questions[0].options[1]}\n3. ${questions[0].options[2]}\n4. ${questions[0].options[3]}`,
+            content: `Great choice! Let's assess your current knowledge of **${categoryLabel}** with a quick 5-question quiz.\n\nFor each question, reply with the number of your answer (1, 2, 3, or 4).\n\n**Question 1 of 5:**\n${questions[0].question}\n\n1. ${questions[0].options[0]}\n2. ${questions[0].options[1]}\n3. ${questions[0].options[2]}\n4. ${questions[0].options[3]}`,
             timestamp: Date.now(),
             stage: "assessment",
             metadata: {
@@ -464,12 +493,11 @@ export function processMessage(
         };
       } else if (method === "self-rate") {
         newState.assessmentMethod = "self-rate";
-        const categoryLabel = category.replace(/-/g, " ");
         return {
           message: {
             id: makeId(),
             role: "assistant",
-            content: `Let's do a quick self-assessment! On a scale of 1-5 (1 = complete beginner, 5 = expert), how would you rate yourself overall in ${categoryLabel}?\n\nAlso, if you can, briefly describe what you've done in this area so far (e.g., "I've run a few social media campaigns" or "I've only read some articles about it").`,
+            content: `Let's do a quick self-assessment for **${categoryLabel}**!\n\nOn a scale of 1-5 (1 = complete beginner, 5 = expert), how would you rate yourself overall?\n\nAlso, if you can, briefly describe what you've done in this area so far.`,
             timestamp: Date.now(),
             stage: "assessment",
             metadata: {
@@ -485,21 +513,16 @@ export function processMessage(
           updatedState: newState,
         };
       } else if (method === "upload") {
-        newState.assessmentMethod = "upload";
+        newState.assessmentMethod = "describe";
         return {
           message: {
             id: makeId(),
             role: "assistant",
-            content: `I understand you'd like to upload a document for assessment. In this demo version, document upload isn't available, but you can describe your experience and skills instead, and I'll assess your level based on that.\n\nPlease tell me about your background and experience in this area - any courses you've taken, projects you've worked on, or tools you've used.`,
+            content: `Document upload isn't available in this demo, but you can describe your experience instead.\n\nPlease tell me about your background and experience in **${categoryLabel}** - any courses you've taken, projects you've worked on, or tools you've used.`,
             timestamp: Date.now(),
             stage: "assessment",
-            metadata: {
-              suggestedActions: [
-                { label: "Describe instead", value: "Let me describe my skills instead" },
-              ],
-            },
           },
-          updatedState: { ...newState, assessmentMethod: "describe" },
+          updatedState: newState,
         };
       } else if (method === "describe") {
         newState.assessmentMethod = "describe";
@@ -507,7 +530,7 @@ export function processMessage(
           message: {
             id: makeId(),
             role: "assistant",
-            content: `Please go ahead and describe your current skills and experience. Tell me about:\n\n- Any relevant courses, certifications, or training you've completed\n- Projects or campaigns you've worked on\n- Tools and platforms you're comfortable with\n- What you feel confident about and where you feel gaps`,
+            content: `Please describe your current skills and experience in **${categoryLabel}**. Tell me about:\n\n- Any relevant courses, certifications, or training you've completed\n- Projects or campaigns you've worked on\n- Tools and platforms you're comfortable with\n- What you feel confident about and where you feel gaps`,
             timestamp: Date.now(),
             stage: "assessment",
           },
@@ -520,7 +543,7 @@ export function processMessage(
         message: {
           id: makeId(),
           role: "assistant",
-          content: `I'd like to understand your current skill level. Could you please choose one of these assessment methods?\n\n1. **Quick Quiz** - Answer a few multiple-choice questions\n2. **Self-Rate** - Rate your proficiency level\n3. **Describe Skills** - Tell me about your current skills`,
+          content: `I'd like to assess your skills in **${categoryLabel}**. Please choose one of these methods:\n\n1. **Quick Quiz** - Answer 5 multiple-choice questions\n2. **Self-Rate** - Rate your proficiency level\n3. **Describe Skills** - Tell me about your current skills`,
           timestamp: Date.now(),
           stage: "assessment",
           metadata: {
@@ -598,7 +621,7 @@ export function processMessage(
           message: {
             id: makeId(),
             role: "assistant",
-            content: `${wasCorrect ? "Correct!" : `The correct answer was: ${prevQ.options[prevQ.correctIndex]}.`}\n\nQuiz complete! Here's your skill profile:\n\n**Overall Level:** ${profile.overallLevel.charAt(0).toUpperCase() + profile.overallLevel.slice(1)}\n**Area:** ${profile.area}\n\n${skillSummary}\n\nBased on your discovery session and this skills assessment, I'll now generate your personalized learning path. One moment...`,
+            content: `${wasCorrect ? "Correct!" : `The correct answer was: ${prevQ.options[prevQ.correctIndex]}.`}\n\nQuiz complete! Here's your skill profile:\n\n**Overall Level:** ${profile.overallLevel.charAt(0).toUpperCase() + profile.overallLevel.slice(1)}\n**Area:** ${profile.area}\n\n${skillSummary}\n\nI'll now generate your personalized learning path. One moment...`,
             timestamp: Date.now(),
             stage: "assessment",
             metadata: { skillProfile: profile },
@@ -610,10 +633,7 @@ export function processMessage(
 
     // Handle self-rate / describe answers
     if (newState.assessmentMethod === "self-rate" || newState.assessmentMethod === "describe") {
-      const profile =
-        newState.assessmentMethod === "self-rate"
-          ? buildSkillProfileFromSelfRate(category, userMessage)
-          : buildSkillProfileFromDescription(category, userMessage);
+      const profile = buildSkillProfileFromSelfRate(category, userMessage);
 
       newState.skillProfile = profile;
       newState.assessmentComplete = true;
@@ -627,7 +647,7 @@ export function processMessage(
         message: {
           id: makeId(),
           role: "assistant",
-          content: `Thank you for sharing! Here's your skill profile based on your input:\n\n**Overall Level:** ${profile.overallLevel.charAt(0).toUpperCase() + profile.overallLevel.slice(1)}\n**Area:** ${profile.area}\n\n${skillSummary}\n\nNow that I have both your learning goals and skill assessment, I'll generate your personalized learning path. One moment...`,
+          content: `Thank you! Here's your skill profile for **${categoryLabel}**:\n\n**Overall Level:** ${profile.overallLevel.charAt(0).toUpperCase() + profile.overallLevel.slice(1)}\n**Area:** ${profile.area}\n\n${skillSummary}\n\nI'll now generate your personalized learning path. One moment...`,
           timestamp: Date.now(),
           stage: "assessment",
           metadata: { skillProfile: profile },
@@ -717,7 +737,6 @@ export function processMessage(
 
     // Re-generate with modifications
     if (newState.skillProfile && !newState.learningPath) {
-      // Adjust based on feedback
       if (lower.includes("beginner")) {
         newState.skillProfile = { ...newState.skillProfile, overallLevel: "beginner" };
       } else if (lower.includes("advanced")) {
