@@ -1,7 +1,7 @@
 "use client";
 
 import { Bot, User } from "lucide-react";
-import { ChatMessage as ChatMessageType, SuggestedAction } from "@/lib/types";
+import { ChatMessage as ChatMessageType } from "@/lib/types";
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -10,10 +10,49 @@ interface ChatMessageProps {
 }
 
 function renderMarkdown(text: string): string {
-  return text
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.*?)\*/g, "<em>$1</em>")
-    .replace(/\n/g, "<br/>");
+  let html = text;
+
+  // Headers (###, ##, #)
+  html = html.replace(/^### (.+)$/gm, '<h3 class="text-sm font-bold mt-3 mb-1">$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2 class="text-base font-bold mt-3 mb-1">$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1 class="text-lg font-bold mt-3 mb-1">$1</h1>');
+
+  // Bold and italic
+  html = html.replace(/\*\*\*(.*?)\*\*\*/g, "<strong><em>$1</em></strong>");
+  html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>");
+
+  // Links: [text](url)
+  html = html.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-primary-600 underline hover:text-primary-800">$1</a>'
+  );
+
+  // Standalone URLs (not already in a link tag)
+  html = html.replace(
+    /(?<!href="|">)(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer" class="text-primary-600 underline hover:text-primary-800">$1</a>'
+  );
+
+  // Numbered lists
+  html = html.replace(
+    /^(\d+)\.\s+(.+)$/gm,
+    '<div class="flex gap-2 ml-2 my-0.5"><span class="text-gray-500 flex-shrink-0">$1.</span><span>$2</span></div>'
+  );
+
+  // Bullet lists (- or *)
+  html = html.replace(
+    /^[-*]\s+(.+)$/gm,
+    '<div class="flex gap-2 ml-2 my-0.5"><span class="text-gray-400 flex-shrink-0">&bull;</span><span>$1</span></div>'
+  );
+
+  // Horizontal rule
+  html = html.replace(/^---$/gm, '<hr class="my-3 border-gray-200" />');
+
+  // Line breaks
+  html = html.replace(/\n/g, "<br/>");
+
+  return html;
 }
 
 export default function ChatMessageComponent({
@@ -44,7 +83,7 @@ export default function ChatMessageComponent({
 
         {actions && isLatest && onSuggestedAction && (
           <div className="flex flex-wrap gap-2 mt-2">
-            {actions.map((action: SuggestedAction, i: number) => (
+            {actions.map((action, i) => (
               <button
                 key={i}
                 onClick={() => onSuggestedAction(action.value)}

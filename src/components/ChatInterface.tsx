@@ -3,40 +3,42 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, RotateCcw, Sparkles } from "lucide-react";
 import {
-  ChatMessage as ChatMessageType,
-  ConversationState,
-  LearningPath,
-  SavedLearningPath,
-} from "@/lib/types";
-import {
-  getInitialState,
-  getWelcomeMessage,
-  processMessage,
-} from "@/lib/ai-engine";
-import {
   saveChatHistory,
   getChatHistory,
-  saveConversationState,
-  getConversationState,
   clearChatHistory,
-  clearConversationState,
-  saveLearningPath,
 } from "@/lib/storage";
 import ChatMessageComponent, { TypingIndicator } from "./ChatMessage";
-import LearningPathDisplay from "./LearningPathDisplay";
+
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
 
 interface ChatInterfaceProps {
   onPathSaved?: () => void;
 }
 
+const WELCOME_MESSAGE: Message = {
+  id: "welcome",
+  role: "assistant",
+  content:
+    "Welcome! I'm your **Personalized Learning Path Agent**.\n\nI'll help you discover your learning needs, assess your current skills, and generate a fully structured, personalized learning path using free, high-quality resources.\n\nTo get started, **what would you like to learn?** Tell me about the skill or topic you're interested in developing.",
+};
+
+function makeId(): string {
+  return Math.random().toString(36).substring(2, 10);
+}
+
 export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<ChatMessageType[]>([]);
-  const [state, setState] = useState<ConversationState>(getInitialState());
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,15 +48,24 @@ export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
   useEffect(() => {
     if (initialized) return;
     const savedHistory = getChatHistory();
-    const savedState = getConversationState();
 
-    if (savedHistory.length > 0 && savedState) {
-      setMessages(savedHistory);
-      setState(savedState);
+    if (savedHistory.length > 0) {
+      const restored: Message[] = savedHistory.map((m) => ({
+        id: m.id,
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
+      setMessages(restored);
     } else {
-      const welcome = getWelcomeMessage();
-      setMessages([welcome]);
-      saveChatHistory([welcome]);
+      setMessages([WELCOME_MESSAGE]);
+      saveChatHistory([
+        {
+          id: WELCOME_MESSAGE.id,
+          role: WELCOME_MESSAGE.role,
+          content: WELCOME_MESSAGE.content,
+          timestamp: Date.now(),
+        },
+      ]);
     }
     setInitialized(true);
   }, [initialized]);
@@ -62,83 +73,114 @@ export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
   // Scroll on new messages
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isTyping, scrollToBottom]);
+  }, [messages, isStreaming, scrollToBottom]);
 
   const sendMessage = useCallback(
-    (text: string) => {
-      if (!text.trim()) return;
+    async (text: string) => {
+      if (!text.trim() || isStreaming) return;
 
-      const userMessage: ChatMessageType = {
-        id: Math.random().toString(36).substring(2, 10),
+      setError(null);
+
+      const userMessage: Message = {
+        id: makeId(),
         role: "user",
         content: text.trim(),
-        timestamp: Date.now(),
-        stage: state.stage,
       };
 
       const updatedMessages = [...messages, userMessage];
       setMessages(updatedMessages);
       setInput("");
-      setIsTyping(true);
+      setIsStreaming(true);
 
-      // Simulate thinking delay
-      setTimeout(() => {
-        const result = processMessage(text.trim(), state, updatedMessages);
-        const newMessages = [...updatedMessages, result.message];
+      // Build the API message history (exclude welcome message from API calls)
+      const apiMessages = updatedMessages
+        .filter((m) => m.id !== "welcome")
+        .map((m) => ({ role: m.role, content: m.content }));
 
-        setMessages(newMessages);
-        setState(result.updatedState);
+      const assistantId = makeId();
 
-        // Persist
-        saveChatHistory(newMessages);
-        saveConversationState(result.updatedState);
+      try {
+        abortRef.current = new AbortController();
 
-        // Check if path was approved and save it
-        if (result.updatedState.pathApproved && result.updatedState.learningPath) {
-          const lp = result.updatedState.learningPath;
-          const savedPath: SavedLearningPath = {
-            id: lp.id,
-            learningPath: lp,
-            chatHistory: newMessages,
-            discoveryNotes: `${result.updatedState.motivation || ""} - ${result.updatedState.specificArea || ""}`,
-            skillProfile: result.updatedState.skillProfile,
-            status: "active",
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            courseProgress: {},
-          };
-          saveLearningPath(savedPath);
-          onPathSaved?.();
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: apiMessages }),
+          signal: abortRef.current.signal,
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(
+            errData.error || `API error: ${response.status}`
+          );
         }
 
-        // Auto-trigger path generation after assessment completes
-        if (
-          result.updatedState.stage === "path-generation" &&
-          !result.updatedState.learningPath &&
-          result.updatedState.skillProfile
-        ) {
-          // Keep typing indicator and auto-generate the path after a brief delay
-          setTimeout(() => {
-            const pathResult = processMessage(
-              "generate my learning path",
-              result.updatedState,
-              newMessages
-            );
-            const pathMessages = [...newMessages, pathResult.message];
-            setMessages(pathMessages);
-            setState(pathResult.updatedState);
-            setIsTyping(false);
-            saveChatHistory(pathMessages);
-            saveConversationState(pathResult.updatedState);
-            inputRef.current?.focus();
-          }, 1500);
-        } else {
-          setIsTyping(false);
-          inputRef.current?.focus();
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("No response stream");
+
+        const decoder = new TextDecoder();
+        let fullContent = "";
+
+        // Add empty assistant message that we'll stream into
+        const assistantMessage: Message = {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          fullContent += chunk;
+
+          // Update the assistant message with accumulated content
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, content: fullContent } : m
+            )
+          );
         }
-      }, 800 + Math.random() * 600);
+
+        // Save final state to localStorage
+        const finalMessages = [
+          ...updatedMessages,
+          { id: assistantId, role: "assistant" as const, content: fullContent },
+        ];
+        saveChatHistory(
+          finalMessages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            timestamp: Date.now(),
+          }))
+        );
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        const message =
+          err instanceof Error ? err.message : "Failed to get response";
+        setError(message);
+
+        // Remove the empty assistant message if streaming failed before any content
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.id === assistantId && !last.content) {
+            return prev.slice(0, -1);
+          }
+          return prev;
+        });
+      } finally {
+        setIsStreaming(false);
+        abortRef.current = null;
+        inputRef.current?.focus();
+      }
     },
-    [messages, state, onPathSaved]
+    [messages, isStreaming]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -146,25 +188,22 @@ export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
     sendMessage(input);
   };
 
-  const handleSuggestedAction = (value: string) => {
-    sendMessage(value);
-  };
-
   const handleNewConversation = () => {
-    const welcome = getWelcomeMessage();
-    const newState = getInitialState();
-    setMessages([welcome]);
-    setState(newState);
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    setMessages([WELCOME_MESSAGE]);
+    setError(null);
     clearChatHistory();
-    clearConversationState();
-    saveChatHistory([welcome]);
-    saveConversationState(newState);
-  };
-
-  const stageLabels: Record<string, string> = {
-    discovery: "Discovery",
-    assessment: "Skills Assessment",
-    "path-generation": "Learning Path Generation",
+    saveChatHistory([
+      {
+        id: WELCOME_MESSAGE.id,
+        role: WELCOME_MESSAGE.role,
+        content: WELCOME_MESSAGE.content,
+        timestamp: Date.now(),
+      },
+    ]);
+    onPathSaved?.();
   };
 
   return (
@@ -177,7 +216,7 @@ export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
             Learning Assistant
           </span>
           <span className="text-xs px-2 py-0.5 bg-primary-100 text-primary-700 rounded-full">
-            {stageLabels[state.stage] || "Discovery"}
+            Powered by Claude
           </span>
         </div>
         <button
@@ -192,33 +231,31 @@ export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 chat-container scrollbar-thin">
-        {messages.map((msg, i) => {
-          const isLatest = i === messages.length - 1;
+        {messages.map((msg) => (
+          <ChatMessageComponent
+            key={msg.id}
+            message={{
+              id: msg.id,
+              role: msg.role,
+              content: msg.content,
+              timestamp: Date.now(),
+            }}
+          />
+        ))}
 
-          return (
-            <div key={msg.id}>
-              <ChatMessageComponent
-                message={msg}
-                onSuggestedAction={handleSuggestedAction}
-                isLatest={isLatest && !isTyping}
-              />
-
-              {/* Render learning path inline if present */}
-              {msg.metadata?.learningPath && msg.role === "assistant" && (
-                <div className="mt-3 ml-11">
-                  <LearningPathDisplay
-                    path={msg.metadata.learningPath}
-                    compact
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-
-        {isTyping && <TypingIndicator />}
+        {isStreaming &&
+          messages[messages.length - 1]?.role !== "assistant" && (
+            <TypingIndicator />
+          )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="px-4 py-2 bg-red-50 border-t border-red-100">
+          <p className="text-xs text-red-600">{error}</p>
+        </div>
+      )}
 
       {/* Input */}
       <form onSubmit={handleSubmit} className="p-4 border-t border-gray-100">
@@ -228,17 +265,13 @@ export default function ChatInterface({ onPathSaved }: ChatInterfaceProps) {
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              state.pathApproved
-                ? "Start a new conversation to create another learning path..."
-                : "Type your message..."
-            }
+            placeholder="Type your message..."
             className="input-field text-sm"
-            disabled={isTyping}
+            disabled={isStreaming}
           />
           <button
             type="submit"
-            disabled={!input.trim() || isTyping}
+            disabled={!input.trim() || isStreaming}
             className="btn-primary flex items-center gap-1.5 px-4 py-3 flex-shrink-0"
           >
             <Send className="h-4 w-4" />
